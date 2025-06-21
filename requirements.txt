@@ -1,0 +1,10 @@
+requests
+streamlit
+streamlit-folium
+folium
+openrouteservice
+markdown
+googlemaps
+polyline
+pandas
+geopy
