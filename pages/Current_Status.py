@@ -94,7 +94,7 @@ tab1, tab2, tab3 = st.tabs(["🌍 Mapa principal", "🚫 Paradas EMT suprimidas"
 with tab1:
     # Build the main map with folium
     # Use a central point in Valencia for initial view (e.g., Plaza del Ayuntamiento coordinates)
-    valencia_center = [39.4399, -0.3763]
+    valencia_center = [39.4699, -0.3763]
     main_map = folium.Map(location=valencia_center, zoom_start=13)
 
     # Layer: EMT stops (clustered markers) - OFF by default
