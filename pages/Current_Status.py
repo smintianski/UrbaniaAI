@@ -8,6 +8,12 @@ import json
 # Page configuration
 st.set_page_config(page_title="Valencia City Data", layout="wide", initial_sidebar_state="expanded")
 
+st.markdown("""
+<style>
+header { visibility: hidden; }
+</style>
+""", unsafe_allow_html=True)
+
 # API endpoints
 DATASETS = {
     "parkings": "https://valencia.opendatasoft.com/api/records/1.0/search/?dataset=parkings&rows=1000",
