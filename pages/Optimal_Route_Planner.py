@@ -10,7 +10,7 @@ from heapq import nsmallest
 # ----------------------------------------------------------------------------------------------------------------------
 # GENERAL CONFIGURATION
 # ----------------------------------------------------------------------------------------------------------------------
-st.set_page_config(page_title="Optimal Route Planner in Valencia", page_icon="🗺️", layout="wide")
+st.set_page_config(page_title="Optimal Route Planner in Valencia", page_icon="🗺️", layout="wide", initial_sidebar_state="expanded")
 
 ORS_API_KEY = st.secrets["ORS_API_KEY"]
 ors_client = openrouteservice.Client(key=ORS_API_KEY)
