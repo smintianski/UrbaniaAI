@@ -6,7 +6,7 @@ import requests
 import json
 
 # Page configuration
-st.set_page_config(page_title="Valencia City Data", layout="wide")
+st.set_page_config(page_title="Valencia City Data", layout="wide", initial_sidebar_state="expanded")
 
 # API endpoints
 DATASETS = {
