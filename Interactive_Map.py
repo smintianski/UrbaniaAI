@@ -13,7 +13,7 @@ import polyline
 # ----------------------------------------------------------------------------------------------------------------------
 # GENERAL CONFIGURATION
 # ----------------------------------------------------------------------------------------------------------------------
-st.set_page_config(page_title="Valencia Tour & Recs", page_icon="🗺️", layout="wide")
+st.set_page_config(page_title="Valencia Tour & Recs", page_icon="🗺️", layout="wide", initial_sidebar_state="expanded")
 
 DEBUGGING = False
 
@@ -48,7 +48,7 @@ def reset_history():
     st.rerun()
 
 # ----------------------------------------------------------------------------------------------------------------------
-# Authentication
+# AUTHENTICATION
 # ----------------------------------------------------------------------------------------------------------------------
 PASSWORD = st.secrets["PASSWORD"]
 
