@@ -207,90 +207,96 @@ with col_ui:
 input_hash = generate_input_hash(transport_mode, start_point, end_point, use_parking)
 
 # ----------------------------------------------------------------------------------------------------------------------
-# ROUTE & MAP (MEJORADO PARA STREAMLIT CLOUD)
+# CACHE ROUTE DATA (NO FOLIUM OBJECTS)
 # ----------------------------------------------------------------------------------------------------------------------
 @st.cache_data(show_spinner=False, ttl=1800)
-def build_map_cached(transport_mode, start_point, end_point, use_parking, input_hash):
-    """Compute route based on UI state and return folium map plus a notice string."""
+def get_route_data(transport_mode, start_point, end_point, use_parking, input_hash):
+    """Calculate route data (without folium objects) that can be cached safely."""
     start_coords = geocode(start_point)
     end_coords = geocode(end_point)
 
     if not (start_coords and end_coords):
-        return None, "Unable to geocode one of the addresses."
+        return {"error": "Unable to geocode one of the addresses.", "start_coords": None, "end_coords": None}
 
-    center = [(start_coords[0] + end_coords[0]) / 2, (start_coords[1] + end_coords[1]) / 2]
-    m = folium.Map(location=center, zoom_start=14)
-    
-    # Markers siempre visibles
-    folium.Marker(start_coords, tooltip="Start", icon=folium.Icon(color="green")).add_to(m)
-    folium.Marker(end_coords, tooltip="End", icon=folium.Icon(color="red")).add_to(m)
-
-    notice = ""
+    result = {
+        "start_coords": start_coords,
+        "end_coords": end_coords,
+        "routes": [],
+        "markers": [],
+        "notice": "",
+        "error": None
+    }
 
     try:
         # CAR MODE
         if transport_mode == "Car":
             def add_penalty(drive_route, base_seconds):
-                """Apply traffic penalty to car segment and return (total_seconds, penalty_seconds)."""
                 penalty = traffic_penalty_seconds(drive_route, traffic)
                 return base_seconds + penalty, penalty
 
             if use_parking == "Parking garage":
                 parking = find_closest(parkings, end_coords)
                 if parking:
-                    folium.Marker(parking["geo_point_2d"], tooltip="Nearest Parking Garage",
-                                  icon=folium.Icon(color="blue")).add_to(m)
-                    # split journey: drive to garage then walk to final point
+                    result["markers"].append({
+                        "coords": parking["geo_point_2d"],
+                        "tooltip": "Nearest Parking Garage",
+                        "color": "blue"
+                    })
+                    
                     r1 = get_route([start_coords[::-1], parking["geo_point_2d"][::-1]], profile="driving-car")
                     r2 = get_route([parking["geo_point_2d"][::-1], end_coords[::-1]], profile="foot-walking")
+                    
                     if r1 and r2:
-                        draw_route(m, r1, "blue", "Drive to parking")
-                        draw_route(m, r2, "green", "Walk to destination")
+                        result["routes"].extend([
+                            {"geojson": r1, "color": "blue", "name": "Drive to parking"},
+                            {"geojson": r2, "color": "green", "name": "Walk to destination"}
+                        ])
                         secs_drive = r1["features"][0]["properties"]["summary"]["duration"]
                         secs_walk = r2["features"][0]["properties"]["summary"]["duration"]
                         total_secs, penalty = add_penalty(r1, secs_drive + secs_walk)
-                        notice = f"Est. total time: {total_secs / 60:.1f} min  (traffic +{penalty / 60:.1f})"
+                        result["notice"] = f"Est. total time: {total_secs / 60:.1f} min  (traffic +{penalty / 60:.1f})"
                 else:
-                    notice = "No parking garage found near destination"
+                    result["notice"] = "No parking garage found near destination"
             else:
-                # street parking assumed at destination
                 r = get_route([start_coords[::-1], end_coords[::-1]], profile="driving-car")
                 if r:
-                    draw_route(m, r, "blue", "Driving route")
+                    result["routes"].append({"geojson": r, "color": "blue", "name": "Driving route"})
                     secs = r["features"][0]["properties"]["summary"]["duration"]
                     total_secs, penalty = add_penalty(r, secs)
-                    notice = f"Est. driving time: {total_secs / 60:.1f} min  (traffic +{penalty / 60:.1f})"
+                    result["notice"] = f"Est. driving time: {total_secs / 60:.1f} min  (traffic +{penalty / 60:.1f})"
 
         # VALENBISI MODE  
         elif transport_mode == "Valenbisi":
             st_start = find_closest(bikes, start_coords)
             st_end = find_closest(bikes, end_coords)
+            
             if st_start and st_end:
-                folium.Marker(st_start["geo_point_2d"], tooltip="Bike pickup",
-                              icon=folium.Icon(color="orange")).add_to(m)
-                folium.Marker(st_end["geo_point_2d"], tooltip="Bike dropoff",
-                              icon=folium.Icon(color="purple")).add_to(m)
+                result["markers"].extend([
+                    {"coords": st_start["geo_point_2d"], "tooltip": "Bike pickup", "color": "orange"},
+                    {"coords": st_end["geo_point_2d"], "tooltip": "Bike dropoff", "color": "purple"}
+                ])
 
-                # walk → bike → walk
                 walk1 = get_route([start_coords[::-1], st_start["geo_point_2d"][::-1]], profile="foot-walking")
                 bike = get_route([st_start["geo_point_2d"][::-1], st_end["geo_point_2d"][::-1]], profile="cycling-regular")
                 walk2 = get_route([st_end["geo_point_2d"][::-1], end_coords[::-1]], profile="foot-walking")
 
                 if walk1 and bike and walk2:
-                    draw_route(m, walk1, "green", "Walk to bike")
-                    draw_route(m, bike, "orange", "Bike route")
-                    draw_route(m, walk2, "green", "Walk from bike")
+                    result["routes"].extend([
+                        {"geojson": walk1, "color": "green", "name": "Walk to bike"},
+                        {"geojson": bike, "color": "orange", "name": "Bike route"},
+                        {"geojson": walk2, "color": "green", "name": "Walk from bike"}
+                    ])
                     dur = sum(r["features"][0]["properties"]["summary"]["duration"] for r in (walk1, bike, walk2))
-                    notice = f"Estimated total time: {dur/60:.1f} min"
+                    result["notice"] = f"Estimated total time: {dur/60:.1f} min"
             else:
-                notice = "No Valenbisi stations found near start/end points"
+                result["notice"] = "No Valenbisi stations found near start/end points"
 
         # WALKING MODE
         elif transport_mode == "Walking":
             r = get_route([start_coords[::-1], end_coords[::-1]], profile="foot-walking")
             if r:
-                draw_route(m, r, "green", "Walking route")
-                notice = f"Estimated walking time: {r['features'][0]['properties']['summary']['duration']/60:.1f} min"
+                result["routes"].append({"geojson": r, "color": "green", "name": "Walking route"})
+                result["notice"] = f"Estimated walking time: {r['features'][0]['properties']['summary']['duration']/60:.1f} min"
 
         # BUS MODE
         elif transport_mode == "Bus":
@@ -298,11 +304,10 @@ def build_map_cached(transport_mode, start_point, end_point, use_parking, input_
             end_cand = k_closest(buses, end_coords)
 
             if not start_cand or not end_cand:
-                notice = "No bus stops found near start/end points"
+                result["notice"] = "No bus stops found near start/end points"
             else:
                 best_pair, best_line, best_score = None, None, float("inf")
 
-                # search for pair of stops sharing a bus line that minimises walking distance
                 for s in start_cand:
                     for e in end_cand:
                         lines = common_lines(s, e)
@@ -314,36 +319,72 @@ def build_map_cached(transport_mode, start_point, end_point, use_parking, input_
                             best_pair, best_line, best_score = (s, e), next(iter(lines)), walk_score
 
                 if not best_pair:
-                    notice = "No bus line connects stops near origin and destination"
+                    result["notice"] = "No bus line connects stops near origin and destination"
                 else:
                     stop_start, stop_end = best_pair
+                    
+                    result["markers"].extend([
+                        {"coords": stop_start["geo_point_2d"], "tooltip": f"Start stop · LINE {best_line}", "color": "lightblue"},
+                        {"coords": stop_end["geo_point_2d"], "tooltip": f"End stop · LINE {best_line}", "color": "lightblue"}
+                    ])
 
-                    # mark chosen stops on map
-                    for stop, tip in ((stop_start, "start"), (stop_end, "end")):
-                        folium.Marker(stop["geo_point_2d"], tooltip=f"{tip.capitalize()} stop · LINE {best_line}",
-                                      icon=folium.Icon(color="lightblue")).add_to(m)
-
-                    # walk legs and bus leg
                     walk1 = get_route([start_coords[::-1], stop_start["geo_point_2d"][::-1]], profile="foot-walking")
                     walk2 = get_route([stop_end["geo_point_2d"][::-1], end_coords[::-1]], profile="foot-walking")
                     bus_r = get_route([stop_start["geo_point_2d"][::-1], stop_end["geo_point_2d"][::-1]], profile="driving-car")
 
                     if walk1 and bus_r and walk2:
-                        draw_route(m, walk1, "green", "Walk to bus")
-                        draw_route(m, walk2, "green", "Walk from bus")
+                        result["routes"].extend([
+                            {"geojson": walk1, "color": "green", "name": "Walk to bus"},
+                            {"geojson": walk2, "color": "green", "name": "Walk from bus"},
+                            {"geojson": bus_r, "color": "red", "name": f"Línea {best_line}", "weight": 6}
+                        ])
                         
-                        folium.GeoJson(bus_r, name=f"Línea {best_line}", 
-                                     style_function=lambda _: {"color": "red", "weight": 6, "opacity": 0.8},
-                                     tooltip=f"Línea {best_line}").add_to(m)
-
-                        # add average waiting time at stop (7 min)
                         dur = (sum(r["features"][0]["properties"]["summary"]["duration"] for r in (walk1, bus_r, walk2)) + 7 * 60)
-                        notice = f"Estimated time with **line {best_line}**: {dur / 60:.1f} min"
+                        result["notice"] = f"Estimated time with **line {best_line}**: {dur / 60:.1f} min"
 
     except Exception as e:
-        notice = f"Error calculating route: {str(e)}"
+        result["error"] = f"Error calculating route: {str(e)}"
+        result["notice"] = result["error"]
     
-    return m, notice
+    return result
+
+def build_map_from_data(route_data):
+    """Build folium map from cached route data."""
+    if route_data.get("error") and not route_data.get("start_coords"):
+        return None, route_data["notice"]
+    
+    start_coords = route_data["start_coords"]
+    end_coords = route_data["end_coords"]
+    
+    center = [(start_coords[0] + end_coords[0]) / 2, (start_coords[1] + end_coords[1]) / 2]
+    m = folium.Map(location=center, zoom_start=14)
+    
+    # Add start/end markers
+    folium.Marker(start_coords, tooltip="Start", icon=folium.Icon(color="green")).add_to(m)
+    folium.Marker(end_coords, tooltip="End", icon=folium.Icon(color="red")).add_to(m)
+    
+    # Add additional markers
+    for marker in route_data.get("markers", []):
+        folium.Marker(
+            marker["coords"], 
+            tooltip=marker["tooltip"],
+            icon=folium.Icon(color=marker["color"])
+        ).add_to(m)
+    
+    # Add routes
+    for route in route_data.get("routes", []):
+        weight = route.get("weight", 5)
+        if route["name"].startswith("Línea"):
+            folium.GeoJson(
+                route["geojson"],
+                name=route["name"],
+                style_function=lambda _: {"color": route["color"], "weight": weight, "opacity": 0.8},
+                tooltip=route["name"]
+            ).add_to(m)
+        else:
+            draw_route(m, route["geojson"], route["color"], route["name"])
+    
+    return m, route_data["notice"]
 
 # ----------------------------------------------------------------------------------------------------------------------
 # SESSION STATE MEJORADO
@@ -357,7 +398,11 @@ if "current_input_hash" not in st.session_state:
 # Solo reconstruir si los inputs cambiaron
 if st.session_state.current_input_hash != input_hash:
     with st.spinner("Calculating route..."):
-        map_result, notice_result = build_map_cached(transport_mode, start_point, end_point, use_parking, input_hash)
+        # Get cached route data (serializable)
+        route_data = get_route_data(transport_mode, start_point, end_point, use_parking, input_hash)
+        
+        # Build map from cached data (not cached itself)
+        map_result, notice_result = build_map_from_data(route_data)
         
         st.session_state.current_input_hash = input_hash
         st.session_state.current_map = map_result
